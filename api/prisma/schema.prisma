@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            Int              @id @default(autoincrement())
+  email         String           @unique
+  passwordHash  String
+  fullName      String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  settings      PlannerSettings?
+  spending      SpendingEntry[]
+}
+
+model PlannerSettings {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @unique
+  monthlyIncome Decimal  @default(1600)
+  recurring     Decimal  @default(650)
+  extraSavings  Decimal  @default(0)
+  days          Int      @default(30)
+  mode          String   @default("soft")
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SpendingEntry {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  date      DateTime
+  amount    Decimal
+  note      String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

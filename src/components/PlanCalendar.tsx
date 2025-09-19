@@ -1,0 +1,180 @@
+import { useMemo, useState, useEffect } from 'react';
+import {
+  addDays,
+  addMonths,
+  differenceInCalendarDays,
+  differenceInCalendarMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  isSameDay,
+  isSameMonth,
+  startOfMonth,
+  startOfWeek,
+} from 'date-fns';
+import { it } from 'date-fns/locale';
+import type { PlannerResult } from '../utils/planner';
+
+interface PlanCalendarProps {
+  plan: PlannerResult;
+}
+
+const STATUS_COLORS: Record<string, { bg: string; dot: string; text: string }> = {
+  green: { bg: 'bg-[#e3f8f5]', dot: 'bg-[#4fb286]', text: 'text-[#1d7a65]' },
+  yellow: { bg: 'bg-[#fff6e0]', dot: 'bg-[#f7c948]', text: 'text-[#b68a12]' },
+  red: { bg: 'bg-[#fee8ea]', dot: 'bg-[#f97068]', text: 'text-[#c2403d]' },
+  pending: { bg: 'bg-[#f7f8fe]', dot: 'bg-[#d0d7ff]', text: 'text-slate-400' },
+  past: { bg: 'bg-white', dot: 'bg-slate-200', text: 'text-slate-300' },
+};
+
+type DayInfoStatus = 'green' | 'yellow' | 'red' | 'pending' | 'past';
+
+type GridDay = {
+  date: Date;
+  status: DayInfoStatus;
+  amount?: number | null;
+  delta?: number | null;
+};
+
+export function PlanCalendar({ plan }: PlanCalendarProps) {
+  const today = useMemo(() => new Date(), []);
+  const lastPlannedDay = useMemo(() => addDays(today, plan.futureDays.length), [today, plan.futureDays.length]);
+  const maxOffset = useMemo(
+    () => Math.max(0, differenceInCalendarMonths(startOfMonth(lastPlannedDay), startOfMonth(today))),
+    [lastPlannedDay, today]
+  );
+  const [monthOffset, setMonthOffset] = useState(0);
+
+  useEffect(() => {
+    if (monthOffset > maxOffset) {
+      setMonthOffset(maxOffset);
+    }
+  }, [maxOffset, monthOffset]);
+
+  const { monthLabel, grid, viewMonth } = useMemo(() => {
+    const viewMonth = addMonths(today, monthOffset);
+    const monthStart = startOfMonth(viewMonth);
+    const monthEnd = endOfMonth(viewMonth);
+    const gridStart = startOfWeek(monthStart, { locale: it, weekStartsOn: 1 });
+    const gridEnd = endOfWeek(monthEnd, { locale: it, weekStartsOn: 1 });
+
+    const days = eachDayOfInterval({ start: gridStart, end: gridEnd }).map<GridDay>((date) => buildDayInfo(date, today, plan));
+
+    return {
+      monthLabel: format(viewMonth, "MMMM yyyy", { locale: it }),
+      grid: days,
+      viewMonth,
+    };
+  }, [monthOffset, plan, today]);
+
+  return (
+    <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-soft">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Passo 2 — Guarda il tuo calendario</p>
+          <h2 className="text-lg font-semibold text-slate-800">{monthLabel}</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMonthOffset((prev) => Math.max(0, prev - 1))}
+            disabled={monthOffset === 0}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-400 transition hover:text-allow-primary disabled:opacity-40"
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            onClick={() => setMonthOffset((prev) => Math.min(maxOffset, prev + 1))}
+            disabled={monthOffset === maxOffset}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-400 transition hover:text-allow-primary disabled:opacity-40"
+          >
+            ›
+          </button>
+        </div>
+      </header>
+
+      <div className="mb-4 flex items-center gap-4 text-xs text-slate-500">
+        <Legend color="bg-[#4fb286]" label="Verde = vai tranquillo" />
+        <Legend color="bg-[#f7c948]" label="Giallo = vai piano" />
+        <Legend color="bg-[#f97068]" label="Rosso = fermati" />
+      </div>
+
+      <div className="grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-400">
+        {['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'].map((day) => (
+          <div key={day}>{day}</div>
+        ))}
+      </div>
+
+      <div className="mt-2 grid grid-cols-7 gap-2">
+        {grid.map((cell) => (
+          <CalendarCell key={cell.date.toISOString()} day={cell} isCurrentMonth={isSameMonth(cell.date, viewMonth)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function buildDayInfo(date: Date, today: Date, plan: PlannerResult): GridDay {
+  const diff = differenceInCalendarDays(date, today);
+
+  if (diff < 0) {
+    return { date, status: 'past', amount: null, delta: null };
+  }
+
+  if (diff === 0) {
+    return { date, status: plan.status, amount: plan.baseAmount, delta: plan.todayDelta };
+  }
+
+  const future = plan.futureDays[diff - 1];
+  if (future) {
+    return { date, status: future.status, amount: future.amount, delta: future.deltaFromBase };
+  }
+
+  return { date, status: 'pending', amount: null, delta: null };
+}
+
+function CalendarCell({ day, isCurrentMonth }: { day: GridDay; isCurrentMonth: boolean }) {
+  const colors = STATUS_COLORS[day.status];
+  const showAmount = typeof day.amount === 'number';
+  const isToday = isSameDay(day.date, new Date());
+
+  return (
+    <div
+      className={`flex min-h-[92px] flex-col justify-between rounded-2xl border border-slate-100 p-3 text-left ${
+        isCurrentMonth ? colors.bg : 'bg-[#f3f4f8]'
+      } ${isToday ? 'ring-2 ring-allow-primary/30' : ''}`}
+    >
+      <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+        <span className={`flex h-5 w-5 items-center justify-center rounded-full ${colors.dot} text-[11px] text-white`}>
+          {format(day.date, 'd', { locale: it })}
+        </span>
+        {isToday ? <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-allow-primary">Oggi</span> : null}
+      </div>
+      <div className={`mt-3 text-sm font-semibold ${colors.text}`}>
+        {showAmount ? `€ ${day.amount?.toFixed(2)}` : '—'}
+      </div>
+      {showAmount && day.delta !== null ? (
+        <p className="text-[10px] text-slate-500">
+          {day.delta === 0
+            ? 'Quota base'
+            : day.delta! > 0
+            ? `+€ ${Math.abs(day.delta!).toFixed(2)} rispetto alla base`
+            : `-€ ${Math.abs(day.delta!).toFixed(2)} rispetto alla base`}
+        </p>
+      ) : (
+        <p className="text-[10px] text-slate-400">Nessun dato ancora</p>
+      )}
+    </div>
+  );
+}
+
+function Legend({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-2">
+      <span className={`h-2.5 w-2.5 rounded-full ${color}`} />
+      {label}
+    </span>
+  );
+}

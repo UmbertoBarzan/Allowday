@@ -1,0 +1,11 @@
+node_modules
+api/node_modules
+.DS_Store
+.vscode
+.idea
+dist
+yarn.lock
+pnpm-lock.yaml
+package-lock.json
+coverage
+api/prisma/dev.db
